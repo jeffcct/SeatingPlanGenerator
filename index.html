@@ -1,0 +1,182 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Seating Plan</title>
+<link rel="stylesheet" href="styles.css">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+</head>
+<body>
+
+<header>
+  <div class="brand">
+    <h1>Seating Plan</h1>
+    <span id="tableCount">0 tables · 0 seats · 0/0 students seated</span>
+  </div>
+  <div class="toolbar">
+    <button class="btn accent" id="duplicateBtn" disabled>Duplicate</button>
+    <button class="btn" id="rotateBtn" disabled>Rotate</button>
+    <button class="btn danger" id="deleteBtn" disabled>Delete</button>
+    <div class="divider"></div>
+    <button class="btn" id="exportBtn">Export JSON</button>
+    <button class="btn" id="importBtn">Import JSON</button>
+    <input type="file" id="importFile" accept="application/json" style="display:none">
+    <button class="btn accent" id="exportImageBtn" title="Download a 1920×1080 (16:9) PNG — ready to drop into Google Slides">Export image</button>
+    <button class="btn accent" id="exportTestBtn" title="Download a 1920×1080 (16:9) PNG without table shapes — bigger name boxes, for exam seating charts">Export test format</button>
+    <button class="btn accent" id="exportSheetsBtn" title="Download an .xlsx with one tab per column — open directly in Google Sheets, or File > Import into an existing sheet">Export to Sheets</button>
+    <div class="divider"></div>
+    <button class="btn danger" id="clearBtn">Clear room</button>
+  </div>
+</header>
+
+<div class="app">
+  <aside>
+    <div class="sidebar-tabs">
+      <button class="sidebar-tab active" id="tabFurniture">Furniture</button>
+      <button class="sidebar-tab" id="tabStudents">Students</button>
+    </div>
+
+    <!-- ============ FURNITURE / ROOM TOOLS ============ -->
+    <div class="panel" id="furniturePanel">
+      <div class="section-title">Add furniture</div>
+      <p class="section-sub">Drag a card onto the room to place it.</p>
+      <div class="palette" id="palette">
+        <!-- populated by js/toolbar.js -->
+      </div>
+
+      <div class="section-title">Seat count</div>
+      <p class="section-sub">Select one table, then adjust.</p>
+      <div class="field-row">
+        <button class="btn" id="seatMinus" style="flex:1" disabled>&minus; Seat</button>
+        <button class="btn" id="seatPlus" style="flex:1" disabled>+ Seat</button>
+      </div>
+
+      <div class="section-title">Grid generator</div>
+      <p class="section-sub">Lay out a grid of any table type at once — handy for exam rooms or quickly filling a large room.</p>
+      <div class="field-row">
+        <div class="field">
+          <label for="gridTableType">Table type</label>
+          <select id="gridTableType">
+            <option value="desk">Single desk</option>
+            <option value="round">Round table</option>
+            <option value="rect">Rectangular table</option>
+            <option value="spot">Spot (no table)</option>
+          </select>
+        </div>
+        <div class="field" id="gridSeatCountField" style="display:none;">
+          <label for="gridSeatCount">Seats per table</label>
+          <input type="number" id="gridSeatCount" min="2" max="16" value="6">
+        </div>
+      </div>
+      <div class="field-row">
+        <div class="field">
+          <label for="gridRows">Rows</label>
+          <input type="number" id="gridRows" min="1" max="20" value="4">
+        </div>
+        <div class="field">
+          <label for="gridCols">Columns</label>
+          <input type="number" id="gridCols" min="1" max="20" value="6">
+        </div>
+      </div>
+      <div class="field-row">
+        <div class="field">
+          <label for="gridAisle">Aisle every N columns</label>
+          <input type="number" id="gridAisle" min="0" max="20" value="3">
+        </div>
+        <div class="field">
+          <label for="gridAisleRows">Aisle every N rows</label>
+          <input type="number" id="gridAisleRows" min="0" max="20" value="0">
+        </div>
+      </div>
+      <button class="btn accent full-btn" id="gridGenBtn">Generate grid</button>
+      <button class="btn full-btn" id="examPresetBtn" style="margin-top:6px;">Exam preset: 15×15, aisle every 5</button>
+
+      <div class="help">
+        Click to select · Shift+click to multi-select · Drag on empty room to box-select · Drag a table to move it (whole group moves together)<br><br>
+        <kbd>Ctrl/Cmd+D</kbd> duplicate selection &nbsp; <kbd>Delete</kbd> remove &nbsp; <kbd>arrows</kbd> nudge &nbsp; <kbd>Esc</kbd> deselect<br><br>
+        Double-click a table's label to rename it.
+      </div>
+    </div>
+
+    <!-- ============ STUDENTS ============ -->
+    <div class="panel hidden" id="studentsPanel">
+      <div class="section-title">Add students</div>
+      <p class="section-sub">Paste one name per line, or upload a CSV (a "name" column, or first/last name columns).</p>
+      <textarea id="pasteText" rows="4" placeholder="Ana Rivera&#10;Ben Cole&#10;Carmen Diaz"></textarea>
+      <button class="btn accent full-btn" id="addFromTextBtn">Add from text</button>
+      <div class="field-row" style="margin-top:8px;">
+        <button class="btn full-btn" id="csvBtn">Upload CSV</button>
+        <input type="file" id="csvInput" accept=".csv,text/csv" style="display:none">
+      </div>
+
+      <div class="section-title">Generate seating plan</div>
+      <p class="section-sub">Fills empty seats. Front/back and next-to requirements are honored first — order only decides how the rest get filled.</p>
+      <div class="field-row">
+        <div class="field">
+          <label for="generateOrder">Order</label>
+          <select id="generateOrder">
+            <option value="alphabetical">Alphabetical</option>
+            <option value="random">Random</option>
+          </select>
+        </div>
+        <div class="field">
+          <label for="generatePattern">Fill pattern</label>
+          <select id="generatePattern">
+            <option value="row">Row by row</option>
+            <option value="column">Column by column</option>
+          </select>
+        </div>
+      </div>
+      <label class="checkbox-row">
+        <input type="checkbox" id="keepExistingCheckbox">
+        <span>Keep current placements, only fill empty seats</span>
+      </label>
+      <button class="btn accent full-btn" id="generateBtn">Generate seating plan</button>
+      <p class="section-sub" id="generateStatus"></p>
+
+      <div class="section-title">Roster <span class="count-pill" id="rosterCount">0</span></div>
+      <input type="text" id="studentSearch" placeholder="Search students…" class="search-input">
+      <p class="section-sub" id="armedHint" style="display:none;">Click (or drag) a seat in the room to place this student. Click their name again to cancel.</p>
+      <div class="roster-list" id="rosterList"></div>
+
+      <div class="warnings-block">
+        <div class="section-title">Requirements check</div>
+        <button class="btn full-btn" id="warningsToggle">Check requirements</button>
+        <div class="warnings-list hidden" id="warningsList"></div>
+      </div>
+
+      <div class="help">
+        Click a student to arm them, then click an empty seat to place them — or just drag their card onto a seat.<br><br>
+        Click an occupied seat to unseat that student. ✎ edits requirements, × removes from the roster.
+      </div>
+    </div>
+  </aside>
+
+  <div class="canvas-wrap" id="canvasWrap">
+    <div class="room" id="room">
+      <div class="front-bar">FRONT OF ROOM</div>
+      <div class="tables-layer" id="tablesLayer"></div>
+    </div>
+  </div>
+</div>
+
+<!-- Load order matters: each file is a plain (non-module) script that
+     shares the same global scope. state -> geometry -> dom must come
+     first; students/assignment before render (render wires seat
+     interactions defined in assignment.js); main.js boots last. -->
+<script src="js/state.js"></script>
+<script src="js/geometry.js"></script>
+<script src="js/dom.js"></script>
+<script src="js/students.js"></script>
+<script src="js/assignment.js"></script>
+<script src="js/generate.js"></script>
+<script src="js/render.js"></script>
+<script src="js/interactions.js"></script>
+<script src="js/toolbar.js"></script>
+<script src="js/export.js"></script>
+<script src="js/sheets-export.js"></script>
+<script src="js/students-ui.js"></script>
+<script src="js/main.js"></script>
+</body>
+</html>
