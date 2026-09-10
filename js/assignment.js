@@ -83,7 +83,41 @@ function wireSeatInteractions(seatEl, seat){
    exactly the same thing in both places.
    ========================================================= */
 
-const ADJACENCY_DISTANCE = 110; // px between seat centers to count as "next to"
+const ADJACENCY_DISTANCE = 110; // px between seat centers to count as "next to" (used for "must sit next to")
+const ROW_CLUSTER_TOLERANCE = 40; // px — seat centers within this y-distance count as the same row
+
+// Clusters every seat in the room into rows by y position (same idea as
+// groupSeatsIntoColumns in sheets-export.js, but by row instead of column),
+// then returns each seat's row index (0 = frontmost row). This is what lets
+// "must not sit next to" mean "not in the same row or a neighbouring row",
+// regardless of how far apart the seats actually are within those rows.
+function computeSeatRows(seatsInfo){
+  const sorted = seatsInfo.slice().sort((a, b) => a.y - b.y || a.x - b.x);
+  const rows = [];
+  sorted.forEach(info => {
+    let row = rows.find(r => Math.abs(r.y - info.y) <= ROW_CLUSTER_TOLERANCE);
+    if (!row){
+      row = { y: info.y, seats: [] };
+      rows.push(row);
+    }
+    row.seats.push(info);
+    // running average keeps a wide row's reference y centered, so later
+    // members near its far edge don't drift out of tolerance
+    row.y = (row.y * (row.seats.length - 1) + info.y) / row.seats.length;
+  });
+
+  rows.sort((a, b) => a.y - b.y);
+  const rowIndexBySeatId = new Map();
+  rows.forEach((row, idx) => row.seats.forEach(info => rowIndexBySeatId.set(info.seat.id, idx)));
+  return rowIndexBySeatId;
+}
+
+// True if two seats are in the same row, or in rows next to each other.
+function inSameOrNeighbouringRow(rowIndexBySeatId, seatIdA, seatIdB){
+  const a = rowIndexBySeatId.get(seatIdA);
+  const b = rowIndexBySeatId.get(seatIdB);
+  return a != null && b != null && Math.abs(a - b) <= 1;
+}
 
 function seatCenter(table, layout, index){
   return {
@@ -118,8 +152,9 @@ function computeSeatGeometry(){
   const hasRange = isFinite(minY) && maxY > minY;
   const backThreshold = hasRange ? minY + (maxY - minY) * 0.66 : null;
   const frontThreshold = hasRange ? minY + (maxY - minY) * 0.33 : null;
+  const rowIndexBySeatId = computeSeatRows(seatsInfo);
 
-  return { seatsInfo, centers, hasRange, backThreshold, frontThreshold, minY, maxY };
+  return { seatsInfo, centers, hasRange, backThreshold, frontThreshold, minY, maxY, rowIndexBySeatId };
 }
 
 /* =========================================================
@@ -128,16 +163,20 @@ function computeSeatGeometry(){
    - "front"/"back" is judged by each seat's vertical position relative
      to the vertical spread of all placed tables (top third = front,
      bottom third = back).
-   - "next to" is judged by raw pixel distance between seat centers,
-     which works the same way across round tables, rectangular tables,
-     and single desks without needing per-shape adjacency rules.
+   - "must sit next to" is judged by raw pixel distance between seat
+     centers, which works the same way across round tables, rectangular
+     tables, and single desks without needing per-shape adjacency rules.
+   - "must not sit next to" is judged by row: seats are clustered into
+     rows by y position, and the requirement is violated if the pair
+     ends up in the same row or in rows next to each other — a wider,
+     room-scale separation than plain seat adjacency.
    ========================================================= */
 
 function recomputeWarnings(){
   const warnings = [];           // { studentId, seatId, message }
   const seatWarnMap = new Map(); // seatId -> [message, ...]
 
-  const { centers, hasRange, backThreshold, frontThreshold } = computeSeatGeometry();
+  const { centers, hasRange, backThreshold, frontThreshold, rowIndexBySeatId } = computeSeatGeometry();
 
   function addWarning(studentId, seatId, message){
     warnings.push({ studentId, seatId, message });
@@ -187,9 +226,8 @@ function recomputeWarnings(){
       if (!other || !placement) return;
       const otherPlacement = getSeatAssignment(otherId);
       if (!otherPlacement) return;
-      const d = distance(centers.get(placement.seat.id), centers.get(otherPlacement.seat.id));
-      if (d <= ADJACENCY_DISTANCE){
-        addWarning(student.id, placement.seat.id, student.name + " must not sit next to " + other.name + ".");
+      if (inSameOrNeighbouringRow(rowIndexBySeatId, placement.seat.id, otherPlacement.seat.id)){
+        addWarning(student.id, placement.seat.id, student.name + " must not sit next to " + other.name + " (same or neighbouring row).");
       }
     });
   });

@@ -11,10 +11,13 @@
    placement queue (see clusterByNextTo below) so nothing else gets a
    chance to claim the seat next to the first partner before the second
    one is placed, and each placement scores candidate seats by distance
-   to already-placed partners. Run "Check requirements" afterward for
-   anything that couldn't be satisfied (usually not enough seats in a
-   zone, or a next-to/not-next-to pair that conflicted with something
-   else, e.g. one partner required front and the other required back).
+   to already-placed "must sit next to" partners and by row proximity to
+   already-placed "must not sit next to" partners (same or a neighbouring
+   row is avoided, not just the immediately adjacent seat). Run "Check
+   requirements" afterward for anything that couldn't be satisfied (usually
+   not enough seats in a zone, or a next-to/not-next-to pair that conflicted
+   with something else, e.g. one partner required front and the other
+   required back).
    ========================================================= */
 
 function shuffle(list){
@@ -148,7 +151,9 @@ function generateSeatingPlan(options){
       if (!other || !otherInfo) return;
       const near = distance(info, otherInfo) <= ADJACENCY_DISTANCE;
       if (near && wantsNextTo(student, other)) score += 1000;
-      if (near && forbidsNextTo(student, other)) score -= 1000;
+      // "must not sit next to" is room-scale: same or neighbouring row,
+      // not just physically adjacent seats
+      if (forbidsNextTo(student, other) && inSameOrNeighbouringRow(geo.rowIndexBySeatId, info.seat.id, seatId)) score -= 1000;
     });
     // among several seats that all qualify for a required zone, prefer
     // the one furthest in that direction — otherwise a seat that just
