@@ -238,6 +238,29 @@ aside{
   z-index: 20;
 }
 
+.aisle-el{
+  position:absolute;
+  top:0;
+  height:100%;
+  width:14px;
+  transform: translateX(-50%);
+  cursor: ew-resize;
+  z-index: 3;
+  display:flex;
+  justify-content:center;
+}
+.aisle-el::before{
+  content:"";
+  width:0;
+  border-left: 2px dashed rgba(255,255,255,.4);
+}
+.aisle-el:hover::before{
+  border-left-color: rgba(255,255,255,.7);
+}
+.aisle-el.selected::before{
+  border-left: 3px dashed var(--brass-light);
+}
+
 .table-el{
   position:absolute;
   cursor: grab;

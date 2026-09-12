@@ -21,10 +21,13 @@ function duplicateSelected(){
 }
 
 function deleteSelected(){
-  if (state.selected.size === 0) return;
+  if (state.selected.size === 0 && state.selectedAisles.size === 0) return;
   state.tables = state.tables.filter(t => !state.selected.has(t.id));
+  state.aisles = state.aisles.filter(a => !state.selectedAisles.has(a.id));
   clearSelection();
+  recomputeWarnings();
   renderAll();
+  renderRoster();
 }
 
 function rotateSelected(){
@@ -60,12 +63,13 @@ seatPlus.addEventListener("click", () => changeSeatCount(1));
 document.getElementById("clearBtn").addEventListener("click", () => {
   if (state.tables.length && !confirm("Clear the whole room? This removes all tables and seats.")) return;
   state.tables = [];
+  state.aisles = [];
   clearSelection();
   renderAll();
 });
 
 document.getElementById("exportBtn").addEventListener("click", () => {
-  const data = JSON.stringify({ tables: state.tables }, null, 2);
+  const data = JSON.stringify({ tables: state.tables, aisles: state.aisles }, null, 2);
   const blob = new Blob([data], { type: "application/json" });
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
@@ -87,6 +91,7 @@ importFile.addEventListener("change", e => {
         if (!t.seats) regenSeats(t);
         return t;
       });
+      state.aisles = Array.isArray(data.aisles) ? data.aisles : [];
       clearSelection();
       renderAll();
     } catch (err){
@@ -95,6 +100,21 @@ importFile.addEventListener("change", e => {
   };
   reader.readAsText(file);
   e.target.value = "";
+});
+
+document.getElementById("addAisleBtn").addEventListener("click", () => {
+  // default to the horizontal center of whatever's already placed, so it
+  // lands somewhere useful instead of always at a fixed spot
+  let x = 400;
+  if (state.tables.length){
+    const xs = state.tables.map(t => t.x + computeLayout(t).w / 2);
+    x = xs.reduce((a, b) => a + b, 0) / xs.length;
+  }
+  const aisle = makeAisle(x);
+  state.aisles.push(aisle);
+  clearSelection();
+  state.selectedAisles.add(aisle.id);
+  renderAll();
 });
 
 /* =========================================================

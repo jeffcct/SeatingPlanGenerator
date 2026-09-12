@@ -83,7 +83,6 @@ function wireSeatInteractions(seatEl, seat){
    exactly the same thing in both places.
    ========================================================= */
 
-const ADJACENCY_DISTANCE = 110; // px between seat centers to count as "next to" (used for "must sit next to")
 const ROW_CLUSTER_TOLERANCE = 40; // px — seat centers within this y-distance count as the same row
 
 // Clusters every seat in the room into rows by y position (same idea as
@@ -112,11 +111,42 @@ function computeSeatRows(seatsInfo){
   return rowIndexBySeatId;
 }
 
+// Aisle dividers (state.aisles) are vertical lines spanning the whole room,
+// each marking a section boundary. A seat's section index counts how many
+// aisles sit to its left, so two seats on opposite sides of even one aisle
+// always land in different, non-adjacent sections — no matter how close
+// together they are — while seats with no aisle between them share a
+// section regardless of how far apart they are.
+function computeSeatSections(seatsInfo){
+  const aisleXs = state.aisles.map(a => a.x).sort((a, b) => a - b);
+  const sectionIndexBySeatId = new Map();
+  seatsInfo.forEach(info => {
+    let idx = 0;
+    aisleXs.forEach(x => { if (info.x >= x) idx++; });
+    sectionIndexBySeatId.set(info.seat.id, idx);
+  });
+  return sectionIndexBySeatId;
+}
+
+// True if two seats are in the same row (not just neighbouring rows).
+function inSameRow(rowIndexBySeatId, seatIdA, seatIdB){
+  const a = rowIndexBySeatId.get(seatIdA);
+  const b = rowIndexBySeatId.get(seatIdB);
+  return a != null && b != null && a === b;
+}
+
 // True if two seats are in the same row, or in rows next to each other.
 function inSameOrNeighbouringRow(rowIndexBySeatId, seatIdA, seatIdB){
   const a = rowIndexBySeatId.get(seatIdA);
   const b = rowIndexBySeatId.get(seatIdB);
   return a != null && b != null && Math.abs(a - b) <= 1;
+}
+
+// True if no aisle divider separates the two seats into different sections.
+function inSameSection(sectionIndexBySeatId, seatIdA, seatIdB){
+  const a = sectionIndexBySeatId.get(seatIdA);
+  const b = sectionIndexBySeatId.get(seatIdB);
+  return a != null && b != null && a === b;
 }
 
 function seatCenter(table, layout, index){
@@ -126,13 +156,10 @@ function seatCenter(table, layout, index){
   };
 }
 
-function distance(a, b){
-  return Math.hypot(a.x - b.x, a.y - b.y);
-}
-
-// Returns every seat's center point plus front/back thresholds, based on
-// the vertical spread of all placed tables (top third = front zone,
-// bottom third = back zone).
+// Returns every seat's center point, front/back thresholds (based on the
+// vertical spread of all placed tables — top third = front, bottom third =
+// back), each seat's row index, and each seat's section index (relative to
+// any aisle dividers).
 function computeSeatGeometry(){
   const seatsInfo = [];      // [{ seat, table, index, x, y }]
   const centers = new Map(); // seatId -> {x,y}
@@ -153,8 +180,9 @@ function computeSeatGeometry(){
   const backThreshold = hasRange ? minY + (maxY - minY) * 0.66 : null;
   const frontThreshold = hasRange ? minY + (maxY - minY) * 0.33 : null;
   const rowIndexBySeatId = computeSeatRows(seatsInfo);
+  const sectionIndexBySeatId = computeSeatSections(seatsInfo);
 
-  return { seatsInfo, centers, hasRange, backThreshold, frontThreshold, minY, maxY, rowIndexBySeatId };
+  return { seatsInfo, centers, hasRange, backThreshold, frontThreshold, minY, maxY, rowIndexBySeatId, sectionIndexBySeatId };
 }
 
 /* =========================================================
@@ -163,20 +191,20 @@ function computeSeatGeometry(){
    - "front"/"back" is judged by each seat's vertical position relative
      to the vertical spread of all placed tables (top third = front,
      bottom third = back).
-   - "must sit next to" is judged by raw pixel distance between seat
-     centers, which works the same way across round tables, rectangular
-     tables, and single desks without needing per-shape adjacency rules.
-   - "must not sit next to" is judged by row: seats are clustered into
-     rows by y position, and the requirement is violated if the pair
-     ends up in the same row or in rows next to each other — a wider,
-     room-scale separation than plain seat adjacency.
+   - "must sit next to" is satisfied only when the pair is in the same
+     row AND the same section (no aisle divider between them) — sharing a
+     row is not enough if an aisle runs between the two seats.
+   - "must not sit next to" is violated when the pair is in the same row,
+     or in rows next to each other, AND in the same section — an aisle
+     between them means they're in different sections and the requirement
+     is considered satisfied even if the rows line up or are adjacent.
    ========================================================= */
 
 function recomputeWarnings(){
   const warnings = [];           // { studentId, seatId, message }
   const seatWarnMap = new Map(); // seatId -> [message, ...]
 
-  const { centers, hasRange, backThreshold, frontThreshold, rowIndexBySeatId } = computeSeatGeometry();
+  const { centers, hasRange, backThreshold, frontThreshold, rowIndexBySeatId, sectionIndexBySeatId } = computeSeatGeometry();
 
   function addWarning(studentId, seatId, message){
     warnings.push({ studentId, seatId, message });
@@ -215,8 +243,9 @@ function recomputeWarnings(){
           student.name + " must sit next to " + other.name + ", but one of them hasn't been placed.");
         return;
       }
-      const d = distance(centers.get(placement.seat.id), centers.get(otherPlacement.seat.id));
-      if (d > ADJACENCY_DISTANCE){
+      const sameRow = inSameRow(rowIndexBySeatId, placement.seat.id, otherPlacement.seat.id);
+      const sameSection = inSameSection(sectionIndexBySeatId, placement.seat.id, otherPlacement.seat.id);
+      if (!sameRow || !sameSection){
         addWarning(student.id, placement.seat.id, student.name + " must sit next to " + other.name + ".");
       }
     });
@@ -226,8 +255,10 @@ function recomputeWarnings(){
       if (!other || !placement) return;
       const otherPlacement = getSeatAssignment(otherId);
       if (!otherPlacement) return;
-      if (inSameOrNeighbouringRow(rowIndexBySeatId, placement.seat.id, otherPlacement.seat.id)){
-        addWarning(student.id, placement.seat.id, student.name + " must not sit next to " + other.name + " (same or neighbouring row).");
+      const rowConflict = inSameOrNeighbouringRow(rowIndexBySeatId, placement.seat.id, otherPlacement.seat.id);
+      const sameSection = inSameSection(sectionIndexBySeatId, placement.seat.id, otherPlacement.seat.id);
+      if (rowConflict && sameSection){
+        addWarning(student.id, placement.seat.id, student.name + " must not sit next to " + other.name + " (same or neighbouring row, same section).");
       }
     });
   });

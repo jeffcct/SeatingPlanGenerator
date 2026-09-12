@@ -4,9 +4,10 @@
    SELECTION
    ========================================================= */
 
-function clearSelection(){ state.selected.clear(); }
+function clearSelection(){ state.selected.clear(); state.selectedAisles.clear(); }
 function selectTable(id){ state.selected.add(id); }
 function toggleSelect(id){ state.selected.has(id) ? state.selected.delete(id) : state.selected.add(id); }
+function toggleSelectAisle(id){ state.selectedAisles.has(id) ? state.selectedAisles.delete(id) : state.selectedAisles.add(id); }
 
 /* =========================================================
    DRAGGING A TABLE (or the whole current selection together)
@@ -71,11 +72,64 @@ function onTableMouseDown(e, table){
 }
 
 /* =========================================================
+   DRAGGING AN AISLE DIVIDER
+   Only its x position matters — an aisle spans the room's full height.
+   ========================================================= */
+
+function onAisleMouseDown(e, aisle){
+  if (e.button !== 0) return;
+  e.stopPropagation();
+
+  const shift = e.shiftKey;
+  let pendingExclusive = false;
+
+  if (shift){
+    toggleSelectAisle(aisle.id);
+  } else if (state.selectedAisles.has(aisle.id)){
+    pendingExclusive = true; // resolved on mouseup if it turns out to be a plain click
+  } else {
+    clearSelection();
+    state.selectedAisles.add(aisle.id);
+  }
+  renderAll();
+
+  const startX = e.clientX;
+  const startPositions = new Map();
+  state.selectedAisles.forEach(id => startPositions.set(id, findAisle(id).x));
+  let moved = false;
+
+  function onMove(ev){
+    const dx = ev.clientX - startX;
+    if (Math.abs(dx) > 3) moved = true;
+    if (moved){
+      startPositions.forEach((x0, id) => { findAisle(id).x = x0 + dx; });
+      renderAll();
+    }
+  }
+  function onUp(){
+    document.removeEventListener("mousemove", onMove);
+    document.removeEventListener("mouseup", onUp);
+    if (moved){
+      state.selectedAisles.forEach(id => { findAisle(id).x = snap(findAisle(id).x); });
+      recomputeWarnings();
+      renderAll();
+      renderRoster();
+    } else if (pendingExclusive){
+      clearSelection();
+      state.selectedAisles.add(aisle.id);
+      renderAll();
+    }
+  }
+  document.addEventListener("mousemove", onMove);
+  document.addEventListener("mouseup", onUp);
+}
+
+/* =========================================================
    BOX SELECT on empty room space
    ========================================================= */
 
 room.addEventListener("mousedown", e => {
-  if (e.target.closest(".table-el")) return;
+  if (e.target.closest(".table-el") || e.target.closest(".aisle-el")) return;
   if (e.button !== 0) return;
   if (!e.shiftKey) { clearSelection(); renderAll(); }
 
@@ -123,7 +177,7 @@ document.addEventListener("keydown", e => {
   if (e.key === "Escape"){ clearSelection(); renderAll(); return; }
 
   const arrowMap = { ArrowUp: [0, -1], ArrowDown: [0, 1], ArrowLeft: [-1, 0], ArrowRight: [1, 0] };
-  if (arrowMap[e.key] && state.selected.size){
+  if (arrowMap[e.key] && (state.selected.size || state.selectedAisles.size)){
     e.preventDefault();
     const step = e.shiftKey ? GRID : 2;
     const [dx, dy] = arrowMap[e.key];
@@ -131,6 +185,10 @@ document.addEventListener("keydown", e => {
       const t = findTable(id);
       t.x += dx * step; t.y += dy * step;
     });
+    if (dx !== 0 && state.selectedAisles.size){
+      state.selectedAisles.forEach(id => { findAisle(id).x += dx * step; });
+      recomputeWarnings();
+    }
     renderAll();
   }
 });

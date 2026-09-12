@@ -13,7 +13,9 @@ const GRID = 20; // px snap size, matches the visible dot grid
 
 const state = {
   tables: [],
-  selected: new Set(),   // Set<tableId>
+  aisles: [],             // { id, x } — vertical section dividers, see js/assignment.js
+  selected: new Set(),    // Set<tableId>
+  selectedAisles: new Set(), // Set<aisleId>
   counters: { round: 0, rect: 0, desk: 0, spot: 0 }
 };
 
@@ -60,7 +62,12 @@ function makeTable(type, x, y, seatCount, label){
   return table;
 }
 
+function makeAisle(x){
+  return { id: uid("aisle"), x: snap(x) };
+}
+
 function findTable(id){ return state.tables.find(t => t.id === id); }
+function findAisle(id){ return state.aisles.find(a => a.id === id); }
 function findSeatById(seatId){
   for (const t of state.tables){
     const s = t.seats.find(s => s.id === seatId);
