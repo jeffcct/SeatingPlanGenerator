@@ -7,6 +7,16 @@
 function renderAll(){
   tablesLayer.innerHTML = "";
 
+  state.aisles.forEach(aisle => {
+    const div = document.createElement("div");
+    div.className = "aisle-el" + (state.selectedAisles.has(aisle.id) ? " selected" : "");
+    div.style.left = aisle.x + "px";
+    div.dataset.id = aisle.id;
+    div.title = "Aisle divider — drag to reposition, Delete to remove";
+    div.addEventListener("mousedown", e => onAisleMouseDown(e, aisle));
+    tablesLayer.appendChild(div);
+  });
+
   state.tables.forEach(table => {
     const layout = computeLayout(table);
     const div = document.createElement("div");
@@ -60,15 +70,17 @@ function renderAll(){
 
 function updateToolbarState(){
   const n = state.selected.size;
+  const aisleN = state.selectedAisles.size;
   const totalSeats = state.tables.reduce((sum, t) => sum + t.seatCount, 0);
   const totalStudents = state.students ? state.students.length : 0;
   const seatedCount = state.tables.reduce((sum, t) => sum + t.seats.filter(s => s.student).length, 0);
   tableCountEl.textContent = state.tables.length + " tables · " + totalSeats + " seats · " +
+    (state.aisles.length ? state.aisles.length + " aisles · " : "") +
     seatedCount + "/" + totalStudents + " students seated" +
-    (n ? " · " + n + " selected" : "");
+    ((n || aisleN) ? " · " + (n + aisleN) + " selected" : "");
 
   duplicateBtn.disabled = n === 0;
-  deleteBtn.disabled = n === 0;
+  deleteBtn.disabled = n === 0 && aisleN === 0;
   rotateBtn.disabled = !Array.from(state.selected).some(id => findTable(id)?.type === "rect");
   seatMinus.disabled = n !== 1;
   seatPlus.disabled = n !== 1 || (n === 1 && findTable(Array.from(state.selected)[0])?.type === "desk");

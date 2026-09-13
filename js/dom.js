@@ -18,6 +18,7 @@ const seatPlus = document.getElementById("seatPlus");
 
 const paletteEl = document.getElementById("palette");
 const importFile = document.getElementById("importFile");
+const addAisleBtn = document.getElementById("addAisleBtn");
 
 /* ---- Sidebar tabs ---- */
 const tabFurnitureBtn = document.getElementById("tabFurniture");

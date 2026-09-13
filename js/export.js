@@ -235,6 +235,22 @@ function exportSeatingPlanImage(options){
     });
   });
 
+  // aisle dividers — dashed vertical lines spanning the seating area
+  if (state.aisles.length){
+    ctx.save();
+    ctx.strokeStyle = "rgba(255,255,255,.45)";
+    ctx.lineWidth = Math.max(1, 2 * scale);
+    ctx.setLineDash([6 * scale, 5 * scale]);
+    state.aisles.forEach(aisle => {
+      const ax = X(aisle.x);
+      ctx.beginPath();
+      ctx.moveTo(ax, Y(minY) - 10);
+      ctx.lineTo(ax, Y(maxY) + 10);
+      ctx.stroke();
+    });
+    ctx.restore();
+  }
+
   canvas.toBlob(blob => {
     if (!blob){
       alert("Couldn't generate the image — try again.");

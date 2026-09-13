@@ -21,10 +21,13 @@ function duplicateSelected(){
 }
 
 function deleteSelected(){
-  if (state.selected.size === 0) return;
+  if (state.selected.size === 0 && state.selectedAisles.size === 0) return;
   state.tables = state.tables.filter(t => !state.selected.has(t.id));
+  state.aisles = state.aisles.filter(a => !state.selectedAisles.has(a.id));
   clearSelection();
+  recomputeWarnings();
   renderAll();
+  renderRoster();
 }
 
 function rotateSelected(){
@@ -60,12 +63,23 @@ seatPlus.addEventListener("click", () => changeSeatCount(1));
 document.getElementById("clearBtn").addEventListener("click", () => {
   if (state.tables.length && !confirm("Clear the whole room? This removes all tables and seats.")) return;
   state.tables = [];
+  state.aisles = [];
   clearSelection();
   renderAll();
 });
 
 document.getElementById("exportBtn").addEventListener("click", () => {
-  const data = JSON.stringify({ tables: state.tables }, null, 2);
+  // seat.student is already a reference to the matching entry in
+  // state.students, so it round-trips fine via JSON.stringify (just
+  // duplicated on disk between a table's seats and the top-level list) —
+  // state.students is included separately so unseated students, and
+  // requirements that reference students by id, survive the round trip too.
+  const data = JSON.stringify({
+    tables: state.tables,
+    aisles: state.aisles,
+    students: state.students,
+    counters: state.counters
+  }, null, 2);
   const blob = new Blob([data], { type: "application/json" });
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
@@ -87,14 +101,58 @@ importFile.addEventListener("change", e => {
         if (!t.seats) regenSeats(t);
         return t;
       });
+      state.aisles = Array.isArray(data.aisles) ? data.aisles : [];
+
+      // students are optional — older exports (or hand-built files) won't
+      // have them, and every field is defaulted so a partially-shaped
+      // student object doesn't blow up the rest of the app
+      state.students = Array.isArray(data.students) ? data.students.map(s => ({
+        id: s.id || uid("student"),
+        name: String(s.name || "").trim() || "Unnamed",
+        requirements: {
+          position: (s.requirements && s.requirements.position) || null,
+          mustSitNextTo: (s.requirements && s.requirements.mustSitNextTo) || [],
+          mustNotSitNextTo: (s.requirements && s.requirements.mustNotSitNextTo) || []
+        }
+      })) : [];
+
+      // seat.student came in as its own parsed copy, not the same object as
+      // its entry in state.students — re-point every seat at the canonical
+      // roster object so later requirement edits (which look students up by
+      // id) are reflected on the seat too, matching how assignment works
+      // the rest of the time (see assignStudentToSeatId in assignment.js)
+      state.tables.forEach(t => t.seats.forEach(seat => {
+        seat.student = seat.student ? findStudentById(seat.student.id) || null : null;
+      }));
+
+      state.counters = Object.assign({ round: 0, rect: 0, desk: 0, spot: 0 }, data.counters || {});
+
+      clearArmedStudent();
       clearSelection();
+      recomputeWarnings();
       renderAll();
+      renderRoster();
     } catch (err){
       alert("Could not read that file — is it a seating plan JSON export?");
     }
   };
   reader.readAsText(file);
   e.target.value = "";
+});
+
+document.getElementById("addAisleBtn").addEventListener("click", () => {
+  // default to the horizontal center of whatever's already placed, so it
+  // lands somewhere useful instead of always at a fixed spot
+  let x = 400;
+  if (state.tables.length){
+    const xs = state.tables.map(t => t.x + computeLayout(t).w / 2);
+    x = xs.reduce((a, b) => a + b, 0) / xs.length;
+  }
+  const aisle = makeAisle(x);
+  state.aisles.push(aisle);
+  clearSelection();
+  state.selectedAisles.add(aisle.id);
+  renderAll();
 });
 
 /* =========================================================
